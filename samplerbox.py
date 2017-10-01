@@ -183,7 +183,11 @@ print '\r\nINIT LOAD TIME: %d seconds (before sample loading)\r\n' % time_total
 ##########################
 
 midi_in = rtmidi2.MidiInMulti()
+excluded_ports = ['Midi Through', 'LoopBe Internal']
 
+if gv.USE_LAUNCHPAD:
+    excluded_ports.extend(['Launchpad', 'RtMidiOut', 'RTMIDI'])
+    
 curr_ports = []
 prev_ports = []
 first_loop = True
@@ -205,8 +209,10 @@ try:
                     midi_in.close_ports()
                     prev_ports = []
                     for port in curr_ports:
-                        if port not in prev_ports and 'Midi Through' not in port and (
-                                        len(prev_ports) != len(curr_ports) and 'LoopBe Internal' not in port):
+                        if len([excluded_port_name for excluded_port_name in excluded_ports if excluded_port_name in port]) > 0 :
+                            print "Ignored MIDI port: ", port
+                            continue
+                        if port not in prev_ports and (len(prev_ports) != len(curr_ports)):
                             midi_in.open_ports(port)
                             midi_in.callback = gv.midicallback.callback
                             if first_loop:
@@ -218,6 +224,43 @@ try:
                 first_loop = False
             time.sleep(0.2)
 
+    if gv.USE_LAUNCHPAD:
+
+        import grid_instrument
+
+        def LaunchpadNoteCallback(messageType, midiNote, velocity):
+            if messageType is "note_on":
+                # MidiCallback([0b10010001, midiNote, velocity], None)
+                gv.ac.noteon(midiNote, 1, velocity)
+            elif messageType is "note_off":
+                # MidiCallback([0b10000001, midiNote, velocity], None)
+                gv.ac.noteoff(midiNote, 1)
+
+        def LaunchpadButtonCallback(x, y, pressed):
+            if gv.SYSTEM_MODE is 1:
+                if x is 1 and y is 9 and pressed:
+                    gv.nav.state.left()
+                elif x is 2 and y is 9 and pressed:
+                    gv.nav.state.right()
+            if gv.SYSTEM_MODE is 2:
+                if x is 1 and y is 9 and pressed:
+                    gv.nav.down()
+                elif x is 2 and y is 9 and pressed:
+                    gv.nav.up()
+
+        instrument = grid_instrument.GridInstrument();
+        # set the callback for midi events
+        instrument.note_callback = LaunchpadNoteCallback
+        # set the callback for function buttons
+        instrument.func_button_callback = LaunchpadButtonCallback
+
+        instrument.kid_mode = False
+        instrument.debugging = False
+        instrument.intro_message = "SamplerBox"
+
+        LaunchpadThread = threading.Thread(target=instrument.start)
+        LaunchpadThread.daemon = True
+        LaunchpadThread.start()
 
     if gv.USE_GUI and not gv.IS_DEBIAN:
 
